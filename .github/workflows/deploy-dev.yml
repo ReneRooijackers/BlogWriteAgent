@@ -1,0 +1,71 @@
+name: Deploy PHP Website
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  LOCATION: westeurope
+  BASE_NAME: blogwriteagent
+  RESOURCE_GROUP: blogwriteagent_dev
+  ENVIRONMENT: dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        run: az group create --name $RESOURCE_GROUP --location $LOCATION
+
+      - name: Deploy infra with Bicep
+        run: |
+          az deployment group create \
+            --resource-group $RESOURCE_GROUP \
+            --template-file infra.bicep \
+            --parameters baseName=$BASE_NAME location=$LOCATION environment=$ENVIRONMENT \
+            --query "properties.outputs" \
+            -o json > bicep_output.json
+
+      - name: Set Web App variables
+        run: |
+          WEBAPP_NAME=$(jq -r '.webAppName.value' bicep_output.json)
+          WEBAPP_HOST=$(jq -r '.webAppHostname.value' bicep_output.json)
+
+          echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
+          echo "WEBAPP_HOST=$WEBAPP_HOST" >> $GITHUB_ENV
+
+      - name: Install Composer dependencies
+        run: |
+          if [ -f composer.json ]; then
+            composer install --no-dev --optimize-autoloader
+          fi
+
+      - name: Prepare deployment package
+        run: |
+          zip -r site.zip . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "node_modules/*" \
+            -x "tests/*"
+
+      - name: Deploy to Azure Web App
+        run: |
+          az webapp deploy \
+            --resource-group $RESOURCE_GROUP \
+            --name $WEBAPP_NAME \
+            --src-path site.zip \
+            --type zip
+
+      - name: Show site URL
+        run: |
+          echo "Website: https://$WEBAPP_HOST"
