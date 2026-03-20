@@ -1,4 +1,4 @@
-Hard reset naar een specifieke commit:
+Hard reset naar een specifieke commit: LET OP, alles in gitignore gaat verloren
 
 git fetch --all
 git switch -C restart-from-commit <commit-hash>
