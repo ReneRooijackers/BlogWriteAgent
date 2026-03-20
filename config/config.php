@@ -1,5 +1,5 @@
 <?php
 
 return [
-    'openai_api_key' => getenv('OPENAI_API_KEY') ?: '',
+    'openai_api_key' => $_ENV['OPENAI_API_KEY'] ?? '',
 ];
