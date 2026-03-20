@@ -16,20 +16,26 @@ class OpenAIClient
             'messages' => [
                 [
                     'role' => 'user',
-                    'content' => $prompt
-                ]
-            ]
+                    'content' => $prompt,
+                ],
+            ],
         ];
 
         $ch = curl_init('https://api.openai.com/v1/chat/completions');
 
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $this->apiKey
+        if ($ch === false) {
+            throw new Exception('cURL kon niet worden geïnitialiseerd.');
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+            ],
+            CURLOPT_POSTFIELDS => json_encode($payload),
         ]);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
 
         $response = curl_exec($ch);
 
@@ -44,8 +50,12 @@ class OpenAIClient
 
         $decoded = json_decode($response, true);
 
+        if (!is_array($decoded)) {
+            throw new Exception('Ongeldige JSON response van OpenAI: ' . $response);
+        }
+
         if ($httpCode >= 400) {
-            throw new Exception('OpenAI fout: ' . $response);
+            throw new Exception('OpenAI fout (' . $httpCode . '): ' . $response);
         }
 
         return $decoded;
