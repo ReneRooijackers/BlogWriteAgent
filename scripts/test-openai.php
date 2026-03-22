@@ -1,61 +1,53 @@
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
-require __DIR__ . '/../agents/OpenAIClient.php';
+declare(strict_types=1);
 
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+set_time_limit(300);
+ini_set('max_execution_time', '300');
 
-$config = require __DIR__ . '/../config/config.php';
+require dirname(__DIR__) . '/bootstrap.php';
 
-$apiKey = $config['openai_api_key'] ?? '';
+use App\Agents\ResearchAgent;
+use App\Agents\ReviewerAgent;
+use App\Agents\SeoAgent;
+use App\Agents\WriterAgent;
+use App\Services\OpenAIClient;
+use App\Storage\BlogRepository;
+use App\Storage\JsonStorage;
+use App\Workflow\BlogWorkflow;
 
-if (!$apiKey) {
-    die("Geen OPENAI_API_KEY gevonden in .env\n");
+$topic = $argv[1] ?? null;
+
+if (!$topic) {
+    fwrite(STDERR, "Usage: php scripts/test-openai.php \"Your topic\"\n");
+    exit(1);
 }
 
-$client = new OpenAIClient($apiKey);
+$appConfig = require base_path('config/app.php');
+$agentConfig = require base_path('config/agents.php');
+
+$client = new OpenAIClient($appConfig['openai']);
+$storage = new JsonStorage($appConfig['storage']['json_db']);
+$repository = new BlogRepository($storage, $appConfig['storage']['approved_dir']);
+
+$workflow = new BlogWorkflow(
+    new ResearchAgent($client, $agentConfig['research']['system']),
+    new SeoAgent($client, $agentConfig['seo']['system']),
+    new WriterAgent($client, $agentConfig['writer']['system']),
+    new ReviewerAgent($client, $agentConfig['reviewer']['system']),
+    $repository
+);
 
 try {
-    $response = $client->chat('Geef 3 blogonderwerpen over tiny houses.');
+    $blog = $workflow->generate($topic);
 
-    $text = $response['choices'][0]['message']['content'] ?? null;
-
-    if (!$text) {
-        echo "Geen tekst ontvangen van OpenAI.\n";
-        print_r($response);
-        exit;
-    }
-
-    echo "\n=== ONDERWERPEN ===\n";
-    echo $text . "\n\n";
-
-    $choice = readline("Welk onderwerp wil je uitwerken? Typ 1, 2 of 3: ");
-
-    $prompts = [
-        '1' => 'Schrijf een SEO-blog van ongeveer 1000 woorden over: De voordelen van wonen in een tiny house: duurzaam, betaalbaar en minimalistisch.',
-        '2' => 'Schrijf een SEO-blog van ongeveer 1000 woorden over: Tips voor het ontwerpen van een functioneel tiny house met beperkte ruimte.',
-        '3' => 'Schrijf een SEO-blog van ongeveer 1000 woorden over: Leven in een tiny house: ervaringen en uitdagingen van tiny house bewoners.',
-    ];
-
-    if (!isset($prompts[$choice])) {
-        exit("Ongeldige keuze. Stoppen.\n");
-    }
-
-    echo "\nBlog wordt gegenereerd...\n\n";
-
-    $blogResponse = $client->chat($prompts[$choice]);
-    $blogText = $blogResponse['choices'][0]['message']['content'] ?? null;
-
-    if (!$blogText) {
-        echo "Geen blogtekst ontvangen van OpenAI.\n";
-        print_r($blogResponse);
-        exit;
-    }
-
-    echo "=== BLOGPOST ===\n";
-    echo $blogText . "\n";
-
-} catch (Exception $e) {
-    echo 'Fout: ' . $e->getMessage() . PHP_EOL;
+    echo "Generated blog:\n";
+    echo "ID: {$blog['id']}\n";
+    echo "Title: {$blog['title']}\n";
+    echo "Status: {$blog['status']}\n";
+    echo "Excerpt: {$blog['excerpt']}\n\n";
+    echo $blog['markdown'] . "\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, "Error: {$e->getMessage()}\n");
+    exit(1);
 }
